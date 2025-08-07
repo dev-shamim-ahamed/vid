@@ -1,101 +1,78 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Badge } from "@/components/ui/badge";
-import { VideoData } from "./VideoCreator";
-import { 
-  Share, 
-  Copy, 
-  Facebook, 
-  Twitter, 
-  Instagram, 
-  Youtube, 
-  Linkedin, 
-  Mail, 
-  MessageCircle,
-  Link,
-  QrCode,
-  Download,
-  Check
-} from "lucide-react";
+import { Share, Copy, Facebook, Instagram, Youtube, Check, Loader2, Download } from "lucide-react";
 import { toast } from "sonner";
+
+declare global {
+  interface Window {
+    gapi: any;
+  }
+}
 
 interface ShareModalProps {
   video: VideoData;
   isOpen: boolean;
   onClose: () => void;
+  videoBlob: Blob | null;
 }
 
-interface SocialPlatform {
-  name: string;
-  icon: React.ReactNode;
-  color: string;
-  url: string;
-  description: string;
-}
+const YOUTUBE_CLIENT_ID = '60260208300-df8movdpkba0tcuvf3jj05fcgjpaq4la.apps.googleusercontent.com';
+const YOUTUBE_SCOPES = 'https://www.googleapis.com/auth/youtube.upload';
 
-export const ShareModal: React.FC<ShareModalProps> = ({ video, isOpen, onClose }) => {
+export const ShareModal: React.FC<ShareModalProps> = ({ 
+  video, 
+  isOpen, 
+  onClose, 
+  videoBlob 
+}) => {
   const [shareTitle, setShareTitle] = useState(video.title);
   const [shareDescription, setShareDescription] = useState(`Check out this amazing video I created with VidiWeave!`);
   const [copySuccess, setCopySuccess] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [googleAuth, setGoogleAuth] = useState<any>(null);
+  const shareUrl = `${window.location.origin}/video/${video.id}`;
 
-  // Generate shareable URL (in real app, this would be your hosted video URL)
-  const shareUrl = `https://vidiweave.com/video/${video.id}`;
+  // Load Google API client
+  useEffect(() => {
+    if (!isOpen) return;
 
-  const socialPlatforms: SocialPlatform[] = [
-    {
-      name: "Facebook",
-      icon: <Facebook className="w-5 h-5" />,
-      color: "bg-blue-600 hover:bg-blue-700",
-      url: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}&quote=${encodeURIComponent(shareDescription)}`,
-      description: "Share to your Facebook timeline"
-    },
-    {
-      name: "Twitter",
-      icon: <Twitter className="w-5 h-5" />,
-      color: "bg-blue-400 hover:bg-blue-500",
-      url: `https://twitter.com/intent/tweet?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(`${shareTitle} - ${shareDescription}`)}`,
-      description: "Tweet to your followers"
-    },
-    {
-      name: "LinkedIn",
-      icon: <Linkedin className="w-5 h-5" />,
-      color: "bg-blue-700 hover:bg-blue-800",
-      url: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(shareUrl)}`,
-      description: "Share on your professional network"
-    },
-    {
-      name: "Instagram",
-      icon: <Instagram className="w-5 h-5" />,
-      color: "bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600",
-      url: "#", // Instagram doesn't support direct URL sharing
-      description: "Download video for Instagram Stories"
-    },
-    {
-      name: "YouTube",
-      icon: <Youtube className="w-5 h-5" />,
-      color: "bg-red-600 hover:bg-red-700",
-      url: "https://www.youtube.com/upload",
-      description: "Upload to your YouTube channel"
-    },
-    {
-      name: "WhatsApp",
-      icon: <MessageCircle className="w-5 h-5" />,
-      color: "bg-green-600 hover:bg-green-700",
-      url: `https://wa.me/?text=${encodeURIComponent(`${shareTitle} - ${shareDescription} ${shareUrl}`)}`,
-      description: "Share via WhatsApp"
-    },
-    {
-      name: "Email",
-      icon: <Mail className="w-5 h-5" />,
-      color: "bg-gray-600 hover:bg-gray-700",
-      url: `mailto:?subject=${encodeURIComponent(shareTitle)}&body=${encodeURIComponent(`${shareDescription}\n\nWatch here: ${shareUrl}`)}`,
-      description: "Send via email"
+    const loadGAPI = () => {
+      const script = document.createElement('script');
+      script.src = 'https://apis.google.com/js/api.js';
+      script.onload = () => {
+        window.gapi.load('client:auth2', () => {
+          window.gapi.client.init({
+            clientId: YOUTUBE_CLIENT_ID,
+            scope: YOUTUBE_SCOPES
+          }).then(() => {
+            setGoogleAuth(window.gapi.auth2.getAuthInstance());
+          });
+        });
+      };
+      document.body.appendChild(script);
+    };
+
+    if (!window.gapi) {
+      loadGAPI();
+    } else if (!googleAuth) {
+      window.gapi.load('client:auth2', () => {
+        window.gapi.client.init({
+          clientId: YOUTUBE_CLIENT_ID,
+          scope: YOUTUBE_SCOPES
+        }).then(() => {
+          setGoogleAuth(window.gapi.auth2.getAuthInstance());
+        });
+      });
     }
-  ];
+
+    return () => {
+      const script = document.querySelector('script[src="https://apis.google.com/js/api.js"]');
+      if (script) document.body.removeChild(script);
+    };
+  }, [isOpen]);
 
   const copyToClipboard = async (text: string, type: string) => {
     try {
@@ -108,30 +85,132 @@ export const ShareModal: React.FC<ShareModalProps> = ({ video, isOpen, onClose }
     }
   };
 
-  const handleSocialShare = (platform: SocialPlatform) => {
-    if (platform.name === "Instagram") {
-      // For Instagram, we'll trigger a download since they don't support direct URL sharing
-      const link = document.createElement('a');
-      link.href = video.videoUrl;
-      link.download = `${video.title}_for_instagram.webm`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      toast.success("Video downloaded for Instagram sharing!");
-    } else {
-      window.open(platform.url, '_blank', 'width=600,height=400');
+  const handleDownload = () => {
+    if (!videoBlob) {
+      toast.error("Video not available for download");
+      return;
+    }
+
+    const url = URL.createObjectURL(videoBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${video.title.replace(/[^a-z0-9]/gi, '_')}.mp4`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleFacebookShare = () => {
+    const url = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(shareUrl)}`;
+    window.open(url, '_blank', 'width=600,height=400');
+  };
+
+  const handleInstagramShare = () => {
+    toast.info(
+      <div className="space-y-2">
+        <p>To share to Instagram:</p>
+        <ol className="list-decimal pl-5">
+          <li>Click the download button below</li>
+          <li>Open Instagram app</li>
+          <li>Create a new post and select the downloaded video</li>
+        </ol>
+      </div>,
+      { duration: 10000 }
+    );
+  };
+
+  const handleYouTubeUpload = async () => {
+    if (!videoBlob) {
+      toast.error("Video not available for upload");
+      return;
+    }
+
+    if (!googleAuth) {
+      toast.error("YouTube API not initialized");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      
+      // Check if user is signed in
+      if (!googleAuth.isSignedIn.get()) {
+        await googleAuth.signIn();
+      }
+
+      const user = googleAuth.currentUser.get();
+      const accessToken = user.getAuthResponse().access_token;
+
+      // Prepare metadata
+      const metadata = {
+        snippet: {
+          title: shareTitle,
+          description: shareDescription,
+          tags: ['VidiWeave'],
+          categoryId: '22' // Entertainment category
+        },
+        status: {
+          privacyStatus: 'private' // Can be 'private', 'public', or 'unlisted'
+        }
+      };
+
+      // Create FormData for upload
+      const formData = new FormData();
+      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      formData.append('media', videoBlob, `${video.title}.mp4`);
+
+      // Upload to YouTube
+      const response = await fetch('https://www.googleapis.com/upload/youtube/v3/videos?part=snippet,status', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        },
+        body: formData
+      });
+
+      const data = await response.json();
+      
+      if (data.error) {
+        throw new Error(data.error.message);
+      }
+
+      toast.success("Video uploaded to YouTube successfully!");
+    } catch (error) {
+      console.error('YouTube upload error:', error);
+      toast.error(`Failed to upload to YouTube: ${error.message}`);
+    } finally {
+      setIsUploading(false);
     }
   };
 
-  const generateQRCode = () => {
-    // In a real app, you'd use a QR code library
-    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(shareUrl)}`;
-    window.open(qrUrl, '_blank');
-  };
+  const socialPlatforms = [
+    {
+      name: "Facebook",
+      icon: <Facebook className="w-5 h-5" />,
+      color: "bg-blue-600 hover:bg-blue-700",
+      handler: handleFacebookShare,
+      disabled: isUploading
+    },
+    {
+      name: "YouTube",
+      icon: isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Youtube className="w-5 h-5" />,
+      color: "bg-red-600 hover:bg-red-700",
+      handler: handleYouTubeUpload,
+      disabled: isUploading
+    },
+    {
+      name: "Instagram",
+      icon: <Instagram className="w-5 h-5" />,
+      color: "bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600",
+      handler: handleInstagramShare,
+      disabled: isUploading
+    }
+  ];
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-auto">
+      <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Share className="w-5 h-5 text-primary" />
@@ -139,165 +218,75 @@ export const ShareModal: React.FC<ShareModalProps> = ({ video, isOpen, onClose }
           </DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-6">
+        <div className="space-y-4">
           {/* Video Preview */}
-          <Card className="bg-background/50">
-            <CardContent className="p-4">
-              <div className="flex gap-4">
-                <img
-                  src={video.thumbnail}
-                  alt={video.title}
-                  className="w-24 h-16 object-cover rounded-lg"
-                />
-                <div className="flex-1">
-                  <h3 className="font-semibold">{video.title}</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Created {video.createdAt.toLocaleDateString()} • {video.size}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Customize Share Content */}
-          <Card className="bg-background/50">
-            <CardHeader>
-              <CardTitle className="text-lg">Customize Your Share</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <label className="text-sm font-medium mb-2 block">Title</label>
-                <Input
-                  value={shareTitle}
-                  onChange={(e) => setShareTitle(e.target.value)}
-                  placeholder="Enter share title..."
-                />
-              </div>
-              <div>
-                <label className="text-sm font-medium mb-2 block">Description</label>
-                <Textarea
-                  value={shareDescription}
-                  onChange={(e) => setShareDescription(e.target.value)}
-                  placeholder="Add a description..."
-                  rows={3}
-                />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Share URL */}
-          <Card className="bg-background/50">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Link className="w-5 h-5" />
-                Share Link
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex gap-2">
-                <Input value={shareUrl} readOnly className="flex-1" />
-                <Button
-                  variant="outline"
-                  onClick={() => copyToClipboard(shareUrl, "Link")}
-                  className="gap-2"
-                >
-                  {copySuccess === "Link" ? (
-                    <Check className="w-4 h-4 text-green-500" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                  Copy
-                </Button>
-                <Button
-                  variant="outline"
-                  onClick={generateQRCode}
-                  className="gap-2"
-                >
-                  <QrCode className="w-4 h-4" />
-                  QR Code
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Social Media Platforms */}
-          <Card className="bg-background/50">
-            <CardHeader>
-              <CardTitle className="text-lg">Share on Social Media</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {socialPlatforms.map((platform) => (
-                  <Button
-                    key={platform.name}
-                    variant="outline"
-                    className={`h-auto p-4 flex flex-col items-center gap-3 hover:scale-105 transition-all duration-300 ${platform.color} text-white border-none`}
-                    onClick={() => handleSocialShare(platform)}
-                  >
-                    {platform.icon}
-                    <div className="text-center">
-                      <div className="font-medium">{platform.name}</div>
-                      <div className="text-xs opacity-90 mt-1">
-                        {platform.description}
-                      </div>
-                    </div>
-                  </Button>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Professional Sharing Tips */}
-          <Card className="bg-primary/5 border-primary/20">
-            <CardHeader>
-              <CardTitle className="text-lg text-primary">Pro Sharing Tips</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Badge variant="secondary" className="mb-2">Facebook & LinkedIn</Badge>
-                  <p className="text-sm text-muted-foreground">
-                    Add engaging captions and tag relevant people to increase reach
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Badge variant="secondary" className="mb-2">YouTube</Badge>
-                  <p className="text-sm text-muted-foreground">
-                    Upload as unlisted first to add thumbnail and description
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Badge variant="secondary" className="mb-2">Instagram</Badge>
-                  <p className="text-sm text-muted-foreground">
-                    Download video for Stories or convert to proper format for feed
-                  </p>
-                </div>
-                <div className="space-y-2">
-                  <Badge variant="secondary" className="mb-2">Twitter</Badge>
-                  <p className="text-sm text-muted-foreground">
-                    Keep descriptions under 280 characters for better engagement
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Action Buttons */}
-          <div className="flex justify-end gap-3 pt-4 border-t">
-            <Button variant="outline" onClick={onClose}>
-              Close
+          <div className="flex gap-4 p-4 border rounded-lg">
+            <video 
+              src={video.videoUrl}
+              className="w-24 h-16 object-cover rounded-lg"
+              muted
+              autoPlay
+              loop
+            />
+            <div className="flex-1">
+              <h3 className="font-semibold">{video.title}</h3>
+              <p className="text-sm text-muted-foreground">
+                {video.size} • {video.duration}
+              </p>
+            </div>
+            <Button variant="outline" onClick={handleDownload} disabled={isUploading}>
+              <Download className="w-4 h-4 mr-2" />
+              Download
             </Button>
+          </div>
+
+          {/* Share Content */}
+          <div className="space-y-3">
+            <div>
+              <label className="text-sm font-medium mb-1 block">Title</label>
+              <Input
+                value={shareTitle}
+                onChange={(e) => setShareTitle(e.target.value)}
+                placeholder="Share title"
+                disabled={isUploading}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium mb-1 block">Description</label>
+              <Textarea
+                value={shareDescription}
+                onChange={(e) => setShareDescription(e.target.value)}
+                placeholder="Add a description..."
+                rows={2}
+                disabled={isUploading}
+              />
+            </div>
+          </div>
+
+          {/* Share Actions */}
+          <div className="grid grid-cols-3 gap-3">
+            {socialPlatforms.map((platform) => (
+              <Button
+                key={platform.name}
+                className={`${platform.color} text-white h-20 flex flex-col gap-2`}
+                onClick={platform.handler}
+                disabled={platform.disabled || !videoBlob}
+              >
+                {platform.icon}
+                <span className="text-xs">{platform.name}</span>
+              </Button>
+            ))}
+          </div>
+
+          {/* Share Link */}
+          <div className="flex gap-2">
+            <Input value={shareUrl} readOnly className="flex-1" disabled={isUploading} />
             <Button
-              variant="hero"
+              variant="outline"
               onClick={() => copyToClipboard(shareUrl, "Link")}
-              className="gap-2"
+              disabled={isUploading}
             >
-              {copySuccess === "Link" ? (
-                <Check className="w-4 h-4" />
-              ) : (
-                <Copy className="w-4 h-4" />
-              )}
-              Copy Link
+              {copySuccess === "Link" ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </Button>
           </div>
         </div>
